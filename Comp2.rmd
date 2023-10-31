@@ -1,0 +1,459 @@
+---
+title: 'Compulsory Exercise 2: Predicting the quality of portugese Vinho Verde wines'
+author:
+- Henrik Olaussen
+- Alexander Laloi Dybdahl
+- Ola Rønnestad Abrahamsen
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    toc: no
+    toc_depth: '2'
+    wineData_print: paged
+  pwineData_document:
+    toc: no
+    toc_depth: '2'
+  pdf_document:
+    toc: no
+    toc_depth: '2'
+header-includes: \usepackage{amsmath}
+urlcolor: blue
+abstract: This project aimed to predict the quality of Portuguese Vinho Verde wine as good or bad using various classification methods. The dataset used was "winequality-red.csv" from Kaggle.com. After comparing the performance of different classification methods, namely LDA, Random Forest, and SVM, the results showed that Random Forest performed the best with an accuracy of 0.9125, lowest P-value, and highest AUC. Therefore, it can be concluded that Random Forest is the best method to classify the quality of wine.
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE,tidy=TRUE,message=FALSE,warning=FALSE,strip.white=TRUE,prompt=FALSE,
+                      cache=TRUE, size="scriptsize",fig.width=4, fig.height=3,fig.align = "center")
+# Set the random seed for reproducibility
+set.seed(1)
+```
+
+```{r,eval=TRUE,echo=FALSE}
+library("knitr")
+library("rmarkdown")
+library("GGally")
+library("dplyr")
+library("e1071")
+library(caret)
+library(ggplot2)
+library(gridExtra)
+library(pROC)
+library(randomForest)
+library(MASS)
+library(tree)
+```
+
+<!--  Etc (load all packages needed). -->
+
+## Introduction: Scope and purpose of your project
+In this project, we want to predict whether the quality of the Portuguese "Vinho Verde" wine is good or not. We say, in this project, that a wine with quality 7 or more is a good wine. Hence, we can either have a bad wine(case 0) or a good wine(case 1). The classification is done by using some of the classification methods that we have learned in this course. 
+
+Our main goal is to find the best performing method when predicting the classification of the wine. Our model is tested on the data from the data-set "winequality-red.csv" file from kaggle.com (Cortez et. al., 2009) (https://www.kaggle.com/datasets/uciml/red-wine-quality-cortez-et-al-2009). 
+
+
+
+## Descriptive data analysis/statistics
+Below, we will do some analysis of the data. First we have to load the data. This is done below:
+
+### Loading data
+
+```{r,eval=TRUE,echo=TRUE}
+wineData <- read.csv(file = 'data/winequality-red.csv')
+#Transforming the quality to either 0 or 1.
+wineDataCopy <- cbind(wineData)
+wineData$quality <- as.factor(ifelse(wineData$quality >= 7, 1, 0))
+dim(wineData)
+```
+We have a total of 1599 observations of 12 variables.
+
+```{r,eval=TRUE,echo=TRUE}
+# Split the data into 70% training and 30% test sets
+set.seed(1)
+trainSize <- floor(0.7 * nrow(wineData))
+trainIndex <- sample(seq_len(nrow(wineData)), trainSize)
+wineDataTrain <- wineData[trainIndex, ]
+wineDataTest <- wineData[-trainIndex, ]
+actual <- wineDataTest$quality
+```
+To apply statistical methods on our data, it is necessary to split our data into a training set and a test set. We chose 70% of our data, at random to be the train set, while the remaining 30% is the test set.
+
+### Summarizing the data
+To get a brief overview of the variables we are dealing with, we can use the summary function.
+```{r, eval=TRUE, echo=TRUE}
+summary(wineData)
+```
+As we can see, we are dealing with 12 different variable with the names: "residual.sugar", "fixed.acidity", "volatile.acidity", "citric.acid", "chlorides", "free.sulfur.dioxide", "total.sulfur.dioxide", "density", "pH", "sulphates", "alcohol","quality". The summary gives us a nice overview of the sizes we are dealing with.
+
+```{r,eval=FALSE,echo=FALSE}
+ggpairs(wineData)
+```
+
+### Boxplots
+Below, we plot a box plot for every variable. With these plots, we can see if some of the variables are important to the classification. 
+```{r,eval=TRUE,echo=TRUE}
+headers <- c("residual.sugar", "fixed.acidity", "volatile.acidity", "citric.acid", "chlorides", "free.sulfur.dioxide", "total.sulfur.dioxide", "density", "pH", "sulphates", "alcohol","quality")
+plots <- list()
+
+for (i in 1:12) {
+  plots[[i]] <- ggplot(data = wineData, aes(x = as.factor(quality), y  = .data[[headers[i]]])) + geom_boxplot()
+}
+
+grid.arrange(grobs = plots[1:6], ncol = 3)
+```
+
+```{r,eval=TRUE,echo=TRUE}
+grid.arrange(grobs = plots[7:12], ncol = 3)
+```
+Looking at the box-plots above, we see that the variable alcohol seems to have an impact on whether the wine is classified as good or bad. This is because the median of alcoholic percent is very different for a good wine compared to a bad wine.
+
+## Methods
+In order to classify the quality, we have chosen four different methods: logistic regression, discriminant analysis (QDA and LDA), random trees/forests and support vector machines (SVM). For the entire project, we use the 70% precent of the wine-data as training set, and the last 30% as test set. 
+
+#### Linear discriminant analysis
+Linear discriminant analysis works by finding the linear combination of variables that maximizes the separation between the two classes. This is achieved by transforming the variables into a lower dimensional space while maintaining as much information as possible.
+
+#### Quadratic discriminant analysis
+Quadratic Discriminant Analysis is quite similar to LDA, however it can model quadratic decision boundaries. It is somewhat more computationally demanding than LDA, but is more flexible.
+
+#### Logistic regression
+Logistic regression works by using the sigmoid function to model the relationship between the predictor variables and the response, The function maps any real-value onto the interval [0,1], which translates to the probability of the binary outcome. If the value is equal or greater than 0.5 it will be classified as 1, otherwise it is bad.
+
+#### Tree-based method
+Tree-based methods, including random forests, use decision trees to classify data based on a set of splitting rules. Random forests create multiple decision trees on randomly selected subsets of the data and aggregate their predictions, reducing variance and improving accuracy.
+
+To optimize the classification tree model, we will compare the misclassification error of different splitting criteria, deviance and Gini-index, and use cross-validation to prune an overfitted tree and reduce bias.
+
+Additionally, we can compare other methods such as bagging and random forests. Bagging generates multiple trees on bootstrapped samples of the original data and averages the results to reduce variance. Random forests further decrease correlation between trees by randomly selecting a subset of predictors at each split.
+
+We will use accuracy, p-value, ROC, and AUC to compare the performance of these classification methods.
+
+#### Support vector machines
+Support vector machines work by separating the data by using a hyperplane. The method will attempt to maximize the distance from the separation line and the observations on every side of the classification. 
+
+To achieve a robust model, we will apply a 10-fold cross validation, which is built into the SVM function in the "e1071" package. This also gives us a better statistical significance.
+
+SVM also requires a cost, which we will choose by calculating the accuracy for different costs, and choosing the one with the highest accuracy. We chose to use the radial kernel as this was computationally best.
+
+To evaluate the performance of our SVM method, we will use the accuracy, as well as the ROC and AUC. This will be used to compare SVM to the other methods.
+
+As we are dealing with a high dimensional dataset, it is hard to create a visual overview of our results due to how SVM works. This could however be achieved by doing PCA on our data to reduce the dimensionality to either 2 or 3 dimensions, allowing us to plot the results. We have not done this to save space, and the SVM will therefore be what we call a "black box" model.
+
+## Results and interpretation
+Firstly, we use the Linear Discriminant Analysis(LDA). This is done by using the function lda() from the MASS-package. We want to predict the data stored in dfTest. This is done with the predict()-function. 
+
+
+### Linear Discriminant Analysis
+```{r,eval=TRUE,echo=TRUE}
+lda.fit <- lda(quality ~., data = wineDataTrain)
+```
+
+Prediction using LDA:
+```{r,eval=TRUE,echo=TRUE}
+lda.predict <- predict(lda.fit, newdata = wineDataTest)
+misclass.lda <- table(pred = lda.predict$class, true = wineDataTest$quality)
+(confMat.lda <- confusionMatrix(misclass.lda))
+```
+
+#### ROC and AUC for classification using LDA
+```{r,eval=TRUE,echo=TRUE}
+lda.roc <- roc(response = wineDataTest$quality, predictor = lda.predict$posterior[,2],plot = TRUE, print.auc = TRUE)
+```
+Above is a plotting of the AUC and ROC. We will compare the AUC and ROC with the other methods that we use. 
+
+Next, we use the Quadratic Discriminant Analysis(QDA). We use the qda function from the MASS-library. The process of classification with QDA in r is quite equal to the process using LDA, as one can see below.
+
+### Quadratic Discriminant Analysis:
+```{r,eval=TRUE,echo=TRUE}
+qda.fit <- qda(quality ~., data = wineDataTrain)
+```
+
+```{r,eval=TRUE,echo=TRUE}
+qda.predict <- predict(qda.fit, newdata = wineDataTest)
+
+misclass.qda <- table(pred = qda.predict$class, true = wineDataTest$quality)
+(confMat.qda <- confusionMatrix(misclass.qda))
+```
+
+#### ROC and AUC for classification using QDA
+```{r,eval=TRUE,echo=TRUE}
+qda.roc <- roc(response = wineDataTest$quality, predictor = qda.predict$posterior[,2], plot = TRUE, print.auc = TRUE)
+```
+
+The AUC is less than when we used LDA. Seems that LDA works better than QDA for this data-set. 
+
+Now we turn our attention away from Discriminant Analysis and consider Logistic Regression. Here we use the glm-function. The process of predicting a classification with Logistic Regression is also quite equal to what is done above with LDA and QDA: 
+
+### Logistic regression:
+Here we use the glm-function in order to do a logistic regression. 
+```{r,eval=TRUE,echo=TRUE}
+glm.fit <- glm(quality ~., data = wineDataTrain, family = binomial)
+```
+
+```{r prediction}
+glm.probs <- predict(glm.fit, newdata = wineDataTest, type ="response")
+glm.predict <- ifelse(glm.probs >= 0.5, 1, 0)
+
+misclass.glm <- table(pred = glm.predict, true = wineDataTest$quality)
+(confMat.glm <- confusionMatrix(misclass.glm))
+```
+
+#### ROC and AUC for classification using logistic regression
+```{r log.reg ROC}
+glm.roc <- roc(response = wineDataTest$quality, predictor = glm.probs, plot = TRUE, print.auc = TRUE)
+```
+One can see that the AUC for the Logistic Regression is better than for both QDA and LDA. 
+
+Furthermore, we want to do the classification using three-based methods. 
+
+### Tree-based methods
+
+We now want to test the prediction performance using tree-based methods
+
+#### Comparing tree splits using cross-entropy and Gini-index
+
+Split using cross-entropy(deviance)
+
+```{r,eval=TRUE,echo=TRUE}
+treeDeviance <- tree(quality ~ ., data = wineData, subset = trainIndex, split = "deviance")
+```
+
+```{r,eval=TRUE,echo=FALSE,fig.width=7, fig.height=5}
+{plot(treeDeviance, type = "proportional")
+text(treeDeviance, pretty = 1)}
+```
+
+Split using Gini-index
+
+```{r,eval=TRUE,echo=TRUE}
+treeGini <- tree(quality ~ ., data = wineData, subset = trainIndex, split = "gini")
+```
+
+```{r,eval=TRUE,echo=FALSE,fig.width=7, fig.height=5}
+{plot(treeGini, type = "proportional")
+text(treeGini, pretty = 1)}
+```
+
+#### Predictions for tree with deviance and gini split
+
+Checking predictions with the deviance:
+
+```{r,eval=TRUE,echo=TRUE}
+treeDeviancePred = predict(treeDeviance, newdata = wineDataTest, type = "class")
+(confMatDeviance <- confusionMatrix(treeDeviancePred, wineDataTest$quality))
+```
+
+```{r,eval=TRUE,echo=TRUE}
+(errorDeviance <- 1 - sum(diag(confMatDeviance$table))/sum(confMatDeviance$table))
+```
+
+Checking predictions with the Gini-index:
+
+```{r,eval=TRUE,echo=TRUE}
+set.seed(1)
+treeGiniPred = predict(treeGini, newdata = wineDataTest, type = "class")
+(confMatGini <- confusionMatrix(treeGiniPred, wineDataTest$quality))
+```
+
+```{r,eval=TRUE,echo=TRUE}
+(errorGini <- 1 - sum(diag(confMatGini$table))/sum(confMatGini$table))
+```
+
+We see that the misclassification error rate for the Gini-index criterion is worse than for the deviance criterion, hence we choose this tree. In addition the pvalue for the Gini-index is `r confMatGini$overall[6]` which is very large.
+
+#### Finding an optimal classification tree
+
+We prune the classification tree with the deviance split using cross-validation on the misclassification
+
+```{r,eval=TRUE,echo=TRUE,fig.width=6, fig.height=4}
+set.seed(1)
+cvDeviance = cv.tree(treeDeviance, FUN = prune.misclass)
+plot(cvDeviance$size, cvDeviance$dev, type = "b", lwd = 2, col = "red",
+     xlab = "Terminal nodes", ylab = "Misclassifications")
+```
+
+```{r,eval=TRUE,echo=TRUE}
+minDevianceDev <- min(cvDeviance$dev)
+minDevianceSize <- cvDeviance$size[which.min(cvDeviance$dev)]
+treeDeviancePruned <- prune.misclass(treeDeviance, best = minDevianceSize)
+```
+
+The minimum number of misclassifications of is `r round(minDevianceDev, 2)` and with `r minDevianceSize` terminal nodes
+
+```{r,eval=TRUE,echo=FALSE,fig.width=7, fig.height=5}
+{plot(treeDeviancePruned)
+text(treeDeviancePruned, pretty = 1)}
+```
+
+##### Deviance tree pruned
+
+```{r,eval=TRUE,echo=TRUE}
+treeDeviancePrunedPred <- predict(treeDeviancePruned, wineDataTest, type = "class")
+(confMatDeviancePruned <- confusionMatrix(treeDeviancePrunedPred, wineDataTest$quality))
+```
+
+```{r,eval=TRUE,echo=TRUE}
+(errorDeviancePruned <- 1 - (sum(diag(confMatDeviancePruned$table))/sum(confMatDeviancePruned$table)))
+```
+
+#### Bagging with random forest
+
+```{r,eval=TRUE,echo=TRUE}
+set.seed(1)
+forestBagged <- randomForest(quality ~ ., data = wineData, subset = trainIndex,
+    mtry = 11, ntree = 500, importance = TRUE)
+```
+
+Predictive performance of the bagged tree on unseen test data:
+
+```{r,eval=TRUE,echo=TRUE}
+forestBaggedPred = predict(forestBagged, newdata = wineDataTest)
+(confMatBagged <- confusionMatrix(forestBaggedPred, wineDataTest$quality))
+```
+
+```{r,eval=TRUE,echo=TRUE}
+(errorBagged <- 1 - sum(diag(confMatBagged$table))/(sum(confMatBagged$table)))
+```
+
+#### Variance importance
+
+Variable importance based on randomization
+
+```{r,eval=TRUE,echo=TRUE,fig.width=9,fig.height=5}
+varImpPlot(forestBagged, pch = 20, main = "")
+```
+
+#### Random forest
+
+```{r,eval=TRUE,echo=TRUE}
+set.seed(1)
+forestRandom = randomForest(quality ~ ., data = wineData, subset = trainIndex,
+    mtry = 3, ntree = 500, importance = TRUE)
+```
+
+We check the predictive performance as before, using the test set:
+
+```{r,eval=TRUE,echo=TRUE}
+forestRandomPred <- predict(forestRandom, newdata = wineDataTest)
+(confMatRandom <- confusionMatrix(forestRandomPred, wineDataTest$quality))
+```
+
+```{r,eval=TRUE,echo=TRUE}
+(errorRandom <- 1 - sum(diag(confMatRandom$table))/(sum(confMatRandom$table)))
+```
+
+The misclassification rate is slightly decreased compared to the bagged tree and the pruned deviance tree.
+
+#### Comparing the different methods by looking at ROC and AUC
+
+##### ROC curve for random tree
+
+```{r,eval=TRUE,echo=TRUE}
+forestRandomPred2 <- predict(forestRandom, newdata = wineDataTest, type = "prob")
+forestRandomROC <- roc(response = wineDataTest$quality, predictor = forestRandomPred2[, "1"], direction = "<",
+    levels = c("0", "1"))
+plot(forestRandomROC)
+```
+
+Area under curve:
+
+```{r,eval=TRUE,echo=TRUE}
+auc(forestRandomROC)
+```
+
+##### ROC curve for bagged tree
+
+```{r,eval=TRUE,echo=TRUE}
+forestBaggedPred <- predict(forestBagged, newdata = wineDataTest, type = "prob")
+forestBaggedROC <- roc(response = wineDataTest$quality, predictor = forestBaggedPred[, "1"], direction = "<",
+    levels = c("0", "1"))
+plot(forestBaggedROC)
+```
+
+Area under curve:
+
+```{r,eval=TRUE,echo=TRUE}
+auc(forestBaggedROC)
+```
+
+##### ROC curve for pruned tree
+
+```{r,eval=TRUE,echo=TRUE}
+treeDeviancePrunedProb <- predict(treeDeviancePruned, newdata = wineDataTest)
+treeDeviancePrunedROC <- roc(response = wineDataTest$quality, predictor = treeDeviancePrunedProb[, "1"], direction = "<",
+    levels = c("0", "1"))
+plot(treeDeviancePrunedROC)
+```
+
+Area under curve:
+
+```{r,eval=TRUE,echo=TRUE}
+auc(treeDeviancePrunedROC)
+```   
+
+Therefore, based on the evaluation metrics of accuracy, p-value, and AUC, we conclude that the Random Forest method outperforms the other classification tree methods and is the most effective for our dataset. The Random Forest method achieved the highest accuracy, smallest p-value, and largest AUC value among all the methods we tested.
+
+### Support vector machine
+Finding the optimal cost parameter:
+```{r,eval=TRUE,echo=TRUE}
+costs = c(0.1, 1, 10,100, 1000)
+i = 1
+accuracies = rep(0, length(costs))
+ 
+for (cost in costs) {
+  svmfit = svm(quality ~ ., data = wineDataTrain, kernel = "radial", cross = 10, cost = cost, scale = TRUE)
+  result <- predict(svmfit, wineDataTest)
+  misclass = table(result,actual)
+  accuracies[i] = sum(diag(misclass))/sum(misclass)
+  i = i + 1
+}
+
+
+
+plot(costs, accuracies, type = "l", log = "x", main="Accuracies for SVM with different costs")
+
+```
+As our plot shows, the best choice for the cost is 10. Further one we will therefore be using cost=10. 
+```{r,eval=TRUE,echo=TRUE}
+#Using the pre-made copy of the data to generate probablities to plot the ROC curve for SVM
+wineDataCopy$quality <- ifelse(wineDataCopy$quality >= 7, 1, 0)
+wineDataTrainCopy <- wineDataCopy[trainIndex, ]
+wineDataTestCopy <- wineDataCopy[-trainIndex, ]
+actualCopy <- wineDataTestCopy$quality
+
+svmfit <- svm(quality ~ ., data = wineDataTrainCopy, kernel = "radial", cost = 10, cross = 10, scale=TRUE)
+
+# Extract the predicted probabilities for class 1
+predicted_prob <- predict(svmfit, wineDataTestCopy)
+predicted <- ifelse(predicted_prob >= 0.5, 1, 0)
+
+# Create a vector of predicted class labels (1 or -1) based on a threshold of 0.5
+#predicted <- ifelse(predicted_prob >= 0.5, 1, 0)
+
+# Extract the actual class labels from the test set
+# Create a confusion matrix
+misclass <- table(pred = predicted, true = actualCopy)
+confusionMatrix <- confusionMatrix(misclass)
+confusionMatrix
+```
+As we can observe from the confusion matrix, we achieved the performance of 0.8979. Our 95% confidence interval is (0.8673, 0.9235), and our P-value is 0.006044. To achieve these results, we have also used cross validation to achieve more robust results. Overall our model seems good, and robust.
+
+We can now move on and observe the ROC curve, to get a view of the tradeoff between accuracy and sensitivity.
+
+```{r,eval=TRUE,echo=TRUE}
+roc_svm_test <- roc(response = actual, predictor = predicted_prob)
+plot(roc_svm_test, print.auc = TRUE, print.auc.x = 0.5, print.auc.y = 0.3, col = "red", main="ROC-curve for SVM")
+```
+We achieve an AUC of 0.820, which must be said to be quite good. However, to decide if this is a good model that we should use, we can compare it with the different models.
+
+## Summary
+The three best models from the different sections were LDA, Random forests and SVM. We achieved the following results:
+
+| Method   | LDA           | Random forest   | SVM             |
+|----------|---------------|-----------------|-----------------|
+| Accuracy | 0.8896        | 0.9125          | 0.8979          |
+| 95% CI   | 0.8581,0.9162 | (0.8836,0.9362) | (0.8836,0.9362) |
+| P-value  | 0.0259585     | 0.0002064       | 0.006044        |
+| AUC      | 0.895         | 0.9024          | 0.820           |
+
+It seems that the Random forest method is best method. It achieves the highest accuracy, lowest P-value and highest AUC. However it is worth noting that the accuracy achieved for random forests in within the 95% confidence intervals for both LDA and SVM. We will however, conclude with random forests being the best method to classify wine to be of high or low quality.
