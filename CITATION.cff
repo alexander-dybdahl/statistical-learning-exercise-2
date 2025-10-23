@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "Wine Quality Classification Using Statistical Learning Methods"
+authors:
+  - given-names: Henrik
+    family-names: Olaussen
+  - given-names: Alexander
+    name-particle: Laloi
+    family-names: Dybdahl
+  - given-names: Ola
+    name-particle: Rønnestad
+    family-names: Abrahamsen
+repository-code: "https://github.com/alexander-dybdahl/statistical-learning-exercise-2"
+abstract: "A comparative study of statistical learning methods for binary classification of Portuguese Vinho Verde wine quality, including LDA, QDA, Logistic Regression, Random Forest, and SVM approaches."
+keywords:
+  - "statistical learning"
+  - "classification"
+  - "wine quality"
+  - "machine learning"
+  - "random forest"
+  - "support vector machine"
+  - "discriminant analysis"
+license: MIT
+version: "1.0.0"

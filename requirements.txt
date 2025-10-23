@@ -1,0 +1,12 @@
+knitr
+rmarkdown
+GGally
+dplyr
+e1071
+caret
+ggplot2
+gridExtra
+pROC
+randomForest
+MASS
+tree
